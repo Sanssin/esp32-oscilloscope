@@ -1,0 +1,7 @@
+# Requirements for ESP32 Oscilloscope GUI
+# Install with: pip install -r requirements.txt
+
+pyserial>=3.5
+numpy>=1.21.0
+matplotlib>=3.5.0
+PyQt5>=5.15.0
