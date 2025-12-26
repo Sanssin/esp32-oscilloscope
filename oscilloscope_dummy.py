@@ -9,9 +9,10 @@ import numpy as np
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QComboBox, QLabel, 
                              QSpinBox, QDoubleSpinBox, QGroupBox, QGridLayout,
-                             QMessageBox, QSlider, QRadioButton, QButtonGroup, QDial)
+                             QMessageBox, QSlider, QRadioButton, QButtonGroup, QDial, 
+                             QSizePolicy, QFrame, QScrollArea)
 from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QPainter, QPen, QColor
 import matplotlib
 matplotlib.use('Qt5Agg')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -19,24 +20,65 @@ from matplotlib.figure import Figure
 import time
 
 class RotaryKnob(QDial):
-    """Custom rotary knob widget that looks like oscilloscope knob"""
+    """Custom rotary knob widget that looks like oscilloscope knob with limited rotation"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimum(0)
         self.setMaximum(100)
-        self.setValue(50)
+        self.setValue(0)
         self.setNotchesVisible(True)
-        self.setWrapping(False)
-        self.setFixedSize(80, 80)
+        self.setWrapping(False)  # No wrap around
+        self.setFixedSize(70, 70)
+        
+        # Set rotation range: from ~210 degrees (7 o'clock) to ~-30 degrees (5 o'clock)
+        # Total rotation: 270 degrees (like real oscilloscope knobs)
         
         # Style
         self.setStyleSheet("""
             QDial {
                 background-color: #2a2a2a;
                 border: 3px solid #00ff00;
-                border-radius: 40px;
+                border-radius: 35px;
             }
         """)
+    
+    def paintEvent(self, event):
+        """Custom paint to show knob pointer/indicator"""
+        from PyQt5.QtGui import QPainter, QPen, QColor
+        super().paintEvent(event)
+        
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Calculate angle based on value
+        # Map value range to 270 degrees rotation (from -135° to +135° from top)
+        range_val = self.maximum() - self.minimum()
+        if range_val > 0:
+            normalized = (self.value() - self.minimum()) / range_val
+        else:
+            normalized = 0
+        
+        # Rotation from -135° (bottom-left) to +135° (bottom-right) = 270° total
+        angle = -135 + (normalized * 270)  # degrees from top (0°)
+        angle_rad = np.radians(angle)
+        
+        # Draw indicator line from center
+        center_x = self.width() / 2
+        center_y = self.height() / 2
+        radius = min(self.width(), self.height()) / 2 - 8
+        
+        end_x = center_x + radius * np.sin(angle_rad)
+        end_y = center_y - radius * np.cos(angle_rad)
+        
+        # Draw white indicator line
+        pen = QPen(QColor('#ffffff'))
+        pen.setWidth(3)
+        painter.setPen(pen)
+        painter.drawLine(int(center_x), int(center_y), int(end_x), int(end_y))
+        
+        # Draw center dot
+        painter.setBrush(QColor('#00ff00'))
+        painter.drawEllipse(int(center_x - 4), int(center_y - 4), 8, 8)
 
 class SignalGenerator:
     """Generate various test signals"""
@@ -233,55 +275,121 @@ class DummyOscilloscopeGUI(QMainWindow):
         
     def initUI(self):
         self.setWindowTitle('ESP32 Oscilloscope - DUMMY DATA MODE')
-        self.setGeometry(100, 100, 1600, 900)
+        self.setGeometry(100, 100, 1400, 800)
         self.setStyleSheet("background-color: #2b2b2b; color: #ffffff;")
         
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-        main_layout = QHBoxLayout(main_widget)
-        
-        # Left side - Display
-        display_layout = QVBoxLayout()
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setSpacing(5)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         
         # Warning banner
         warning = QLabel('⚠️ DUMMY DATA MODE - For Testing GUI Only ⚠️')
         warning.setStyleSheet("background-color: #ff8800; color: #000000; padding: 10px; font-size: 14px; font-weight: bold;")
         warning.setAlignment(Qt.AlignCenter)
-        display_layout.addWidget(warning)
+        warning.setMaximumHeight(40)
+        main_layout.addWidget(warning)
         
+        # Canvas
         self.canvas = OscilloscopeCanvas(self)
-        display_layout.addWidget(self.canvas)
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        main_layout.addWidget(self.canvas)
         
-        # Status bar
-        status_layout = QHBoxLayout()
-        self.status_label = QLabel('Status: DUMMY MODE ACTIVE')
-        self.status_label.setStyleSheet("color: #ffff00; font-size: 12px; font-weight: bold;")
-        self.freq_label = QLabel('Frequency: 1000 Hz')
-        self.freq_label.setStyleSheet("color: #00ff00; font-size: 12px;")
-        self.vpp_label = QLabel('Vpp: 2.00 V')
+        # Measurements panel (below canvas)
+        meas_panel = QWidget()
+        meas_panel.setStyleSheet("background-color: #1e1e1e; border: 1px solid #444; border-radius: 3px;")
+        layout = QVBoxLayout(meas_panel)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(5)
+        
+        # Row 1: Status
+        status_row = QHBoxLayout()
+        self.status_label = QLabel('● DUMMY MODE')
+        self.status_label.setStyleSheet("color: #ffff00; font-size: 13px; font-weight: bold;")
+        status_row.addWidget(self.status_label)
+        status_row.addStretch()
+        layout.addLayout(status_row)
+        
+        # Row 2: Voltage measurements
+        volt_row = QHBoxLayout()
+        volt_row.setSpacing(10)
+        
+        self.vmax_label = QLabel("Vmax: --")
+        self.vmax_label.setMinimumWidth(120)
+        self.vmax_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.vmax_label.setStyleSheet("color: #00ff00; font-size: 12px;")
+        
+        self.vmin_label = QLabel("Vmin: --")
+        self.vmin_label.setMinimumWidth(120)
+        self.vmin_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.vmin_label.setStyleSheet("color: #00ff00; font-size: 12px;")
+        
+        self.vavg_label = QLabel("Vavg: --")
+        self.vavg_label.setMinimumWidth(120)
+        self.vavg_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.vavg_label.setStyleSheet("color: #00ff00; font-size: 12px;")
+        
+        self.vpp_label = QLabel("Vpp: --")
+        self.vpp_label.setMinimumWidth(120)
+        self.vpp_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.vpp_label.setStyleSheet("color: #00ff00; font-size: 12px;")
         
-        status_layout.addWidget(self.status_label)
-        status_layout.addStretch()
-        status_layout.addWidget(self.freq_label)
-        status_layout.addWidget(self.vpp_label)
+        volt_row.addWidget(self.vmax_label)
+        volt_row.addWidget(self.vmin_label)
+        volt_row.addWidget(self.vavg_label)
+        volt_row.addWidget(self.vpp_label)
+        volt_row.addStretch()
+        layout.addLayout(volt_row)
         
-        display_layout.addLayout(status_layout)
-        main_layout.addLayout(display_layout, 3)
+        # Row 3: Frequency and time measurements
+        freq_row = QHBoxLayout()
+        freq_row.setSpacing(10)
         
-        # Right side - Controls
+        self.freq_label = QLabel("Freq: --")
+        self.freq_label.setMinimumWidth(150)
+        self.freq_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.freq_label.setStyleSheet("color: #00ff00; font-size: 12px;")
+        
+        self.period_label = QLabel("Period: --")
+        self.period_label.setMinimumWidth(150)
+        self.period_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.period_label.setStyleSheet("color: #00ff00; font-size: 12px;")
+        
+        self.duty_label = QLabel("Duty: --")
+        self.duty_label.setMinimumWidth(120)
+        self.duty_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.duty_label.setStyleSheet("color: #00ff00; font-size: 12px;")
+        
+        self.samples_label = QLabel("Samples: 2000")
+        self.samples_label.setMinimumWidth(120)
+        self.samples_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.samples_label.setStyleSheet("color: #00ff00; font-size: 12px;")
+        
+        freq_row.addWidget(self.freq_label)
+        freq_row.addWidget(self.period_label)
+        freq_row.addWidget(self.duty_label)
+        freq_row.addWidget(self.samples_label)
+        freq_row.addStretch()
+        layout.addLayout(freq_row)
+        
+        main_layout.addWidget(meas_panel)
+        
+        # Control panel
         control_panel = self.create_control_panel()
-        main_layout.addWidget(control_panel, 1)
+        main_layout.addWidget(control_panel)
         
     def create_control_panel(self):
         panel = QWidget()
+        panel.setMaximumHeight(180)
         panel.setStyleSheet("""
             QGroupBox {
                 border: 2px solid #00ff00;
                 border-radius: 5px;
-                margin-top: 10px;
+                margin-top: 5px;
                 font-weight: bold;
                 color: #00ff00;
+                font-size: 11px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -291,10 +399,12 @@ class DummyOscilloscopeGUI(QMainWindow):
             QPushButton {
                 background-color: #3a3a3a;
                 border: 2px solid #00ff00;
-                border-radius: 5px;
+                border-radius: 3px;
                 color: #00ff00;
-                padding: 8px;
+                padding: 5px;
                 font-weight: bold;
+                font-size: 10px;
+                min-height: 25px;
             }
             QPushButton:hover {
                 background-color: #4a4a4a;
@@ -307,213 +417,294 @@ class DummyOscilloscopeGUI(QMainWindow):
                 background-color: #3a3a3a;
                 border: 1px solid #00ff00;
                 color: #00ff00;
-                padding: 5px;
+                padding: 3px;
+                font-size: 10px;
             }
             QLabel {
                 color: #ffffff;
-            }
-            QRadioButton {
-                color: #ffffff;
+                font-size: 10px;
             }
         """)
         
-        layout = QVBoxLayout(panel)
+        layout = QHBoxLayout(panel)
+        layout.setSpacing(10)
+        layout.setContentsMargins(5, 5, 5, 5)
         
-        # Signal Generator Group
-        sig_group = QGroupBox("Signal Generator (Dummy)")
+        # Column 1: Signal Generator + Run/Stop
+        col1 = QWidget()
+        col1_layout = QVBoxLayout(col1)
+        col1_layout.setSpacing(5)
+        col1_layout.setContentsMargins(0, 0, 0, 0)
+        
+        sig_group = QGroupBox("Signal Gen (Dummy)")
         sig_layout = QGridLayout()
+        sig_layout.setSpacing(3)
+        sig_layout.setContentsMargins(5, 8, 5, 5)
         
-        sig_layout.addWidget(QLabel("Signal Type:"), 0, 0)
+        sig_layout.addWidget(QLabel("Type:"), 0, 0)
         self.signal_combo = QComboBox()
-        self.signal_combo.addItems(['Sine', 'Square', 'Triangle', 'Sawtooth', 'Pulse', 'Noise', 'DC'])
+        self.signal_combo.addItems(['Sine', 'Square', 'Triangle', 'Sawtooth'])
         self.signal_combo.currentTextChanged.connect(self.change_signal_type)
         sig_layout.addWidget(self.signal_combo, 0, 1)
         
-        sig_layout.addWidget(QLabel("Frequency:"), 1, 0)
+        sig_layout.addWidget(QLabel("Freq:"), 1, 0)
         self.freq_spin = QSpinBox()
-        self.freq_spin.setRange(1, 100000)
+        self.freq_spin.setRange(10, 50000)
         self.freq_spin.setValue(1000)
         self.freq_spin.setSuffix(" Hz")
         self.freq_spin.valueChanged.connect(self.change_frequency)
         sig_layout.addWidget(self.freq_spin, 1, 1)
         
-        sig_layout.addWidget(QLabel("Amplitude:"), 2, 0)
+        sig_layout.addWidget(QLabel("Amp:"), 2, 0)
         self.amp_spin = QDoubleSpinBox()
-        self.amp_spin.setRange(0.1, 1.65)
-        self.amp_spin.setValue(1.0)
+        self.amp_spin.setRange(0.1, 1.5)
+        self.amp_spin.setValue(0.8)
         self.amp_spin.setSingleStep(0.1)
         self.amp_spin.setSuffix(" V")
         self.amp_spin.valueChanged.connect(self.change_amplitude)
         sig_layout.addWidget(self.amp_spin, 2, 1)
         
-        sig_layout.addWidget(QLabel("DC Offset:"), 3, 0)
-        self.offset_spin = QDoubleSpinBox()
-        self.offset_spin.setRange(0, 3.3)
-        self.offset_spin.setValue(1.65)
-        self.offset_spin.setSingleStep(0.1)
-        self.offset_spin.setSuffix(" V")
-        self.offset_spin.valueChanged.connect(self.change_offset)
-        sig_layout.addWidget(self.offset_spin, 3, 1)
-        
-        sig_layout.addWidget(QLabel("Noise Level:"), 4, 0)
-        self.noise_spin = QDoubleSpinBox()
-        self.noise_spin.setRange(0, 0.5)
-        self.noise_spin.setValue(0.05)
-        self.noise_spin.setSingleStep(0.01)
-        self.noise_spin.setSuffix(" V")
-        self.noise_spin.valueChanged.connect(self.change_noise)
-        sig_layout.addWidget(self.noise_spin, 4, 1)
-        
         sig_group.setLayout(sig_layout)
-        layout.addWidget(sig_group)
+        col1_layout.addWidget(sig_group)
         
-        # Acquisition Control
-        acq_group = QGroupBox("Acquisition Control")
-        acq_layout = QGridLayout()
-        
-        self.run_btn = QPushButton("Stop" if self.is_running else "Run")
+        self.run_btn = QPushButton("⏸ Stop" if self.is_running else "▶ Run")
         self.run_btn.clicked.connect(self.toggle_acquisition)
-        acq_layout.addWidget(self.run_btn, 0, 0, 1, 2)
+        col1_layout.addWidget(self.run_btn)
         
-        acq_group.setLayout(acq_layout)
-        layout.addWidget(acq_group)
+        col1_layout.addStretch()
+        layout.addWidget(col1)
         
-        # Timebase Control
-        time_group = QGroupBox("Horizontal (Timebase)")
-        time_layout = QGridLayout()
-        
-        time_layout.addWidget(QLabel("Sample Rate:"), 0, 0)
-        self.rate_combo = QComboBox()
-        self.rate_combo.addItems(['10 kHz', '50 kHz', '100 kHz', '200 kHz', '500 kHz', '1 MHz'])
-        self.rate_combo.setCurrentText('100 kHz')
-        self.rate_combo.currentTextChanged.connect(self.change_sample_rate)
-        time_layout.addWidget(self.rate_combo, 0, 1)
-        
-        time_layout.addWidget(QLabel("Time/DIV:"), 1, 0)
-        self.time_per_div = QDoubleSpinBox()
-        self.time_per_div.setRange(0.1, 50)
-        self.time_per_div.setValue(2.0)
-        self.time_per_div.setSingleStep(0.1)
-        self.time_per_div.setSuffix(" ms/div")
-        time_layout.addWidget(self.time_per_div, 1, 1)
-        
-        time_layout.addWidget(QLabel("Position:"), 2, 0)
-        self.h_position = QDoubleSpinBox()
-        self.h_position.setRange(-50, 50)
-        self.h_position.setValue(0)
-        self.h_position.setSingleStep(0.5)
-        self.h_position.setSuffix(" ms")
-        self.h_position.valueChanged.connect(lambda v: self.canvas.set_horizontal_offset(v))
-        time_layout.addWidget(self.h_position, 2, 1)
-        
-        time_group.setLayout(time_layout)
-        layout.addWidget(time_group)
-        
-        # Vertical Control
-        vert_group = QGroupBox("Vertical (Channel 1)")
-        vert_layout = QGridLayout()
-        
-        vert_layout.addWidget(QLabel("Volts/DIV:"), 0, 0)
-        self.volts_per_div = QDoubleSpinBox()
-        self.volts_per_div.setRange(0.01, 2.0)
-        self.volts_per_div.setValue(0.5)
-        self.volts_per_div.setSingleStep(0.01)
-        self.volts_per_div.setDecimals(3)
-        self.volts_per_div.setSuffix(" V/div")
-        vert_layout.addWidget(self.volts_per_div, 0, 1)
-        
-        vert_layout.addWidget(QLabel("Position:"), 1, 0)
-        self.v_position = QDoubleSpinBox()
-        self.v_position.setRange(-2.0, 2.0)
-        self.v_position.setValue(0.0)
-        self.v_position.setSingleStep(0.1)
-        self.v_position.setSuffix(" V")
-        self.v_position.valueChanged.connect(lambda v: self.canvas.set_vertical_offset(v))
-        vert_layout.addWidget(self.v_position, 1, 1)
-        
-        # Quick preset buttons
-        preset_layout = QHBoxLayout()
-        
-        preset_50mv = QPushButton("50mV")
-        preset_50mv.clicked.connect(lambda: self.volts_per_div.setValue(0.05))
-        preset_layout.addWidget(preset_50mv)
-        
-        preset_100mv = QPushButton("100mV")
-        preset_100mv.clicked.connect(lambda: self.volts_per_div.setValue(0.1))
-        preset_layout.addWidget(preset_100mv)
-        
-        preset_500mv = QPushButton("500mV")
-        preset_500mv.clicked.connect(lambda: self.volts_per_div.setValue(0.5))
-        preset_layout.addWidget(preset_500mv)
-        
-        preset_1v = QPushButton("1V")
-        preset_1v.clicked.connect(lambda: self.volts_per_div.setValue(1.0))
-        preset_layout.addWidget(preset_1v)
-        
-        vert_layout.addLayout(preset_layout, 2, 0, 1, 2)
-        
-        vert_group.setLayout(vert_layout)
+        # Column 2: Vertical Control
+        vert_group = self.create_vertical_control()
         layout.addWidget(vert_group)
         
-        # Trigger Control
-        trig_group = QGroupBox("Trigger")
-        trig_layout = QGridLayout()
-        
-        trig_layout.addWidget(QLabel("Level:"), 0, 0)
-        self.trig_level = QDoubleSpinBox()
-        self.trig_level.setRange(0, 3.3)
-        self.trig_level.setValue(1.65)
-        self.trig_level.setSingleStep(0.1)
-        self.trig_level.setSuffix(" V")
-        self.trig_level.valueChanged.connect(self.change_trigger_level)
-        trig_layout.addWidget(self.trig_level, 0, 1)
-        
-        trig_group.setLayout(trig_layout)
-        layout.addWidget(trig_group)
-        
-        # Measurements
-        meas_group = QGroupBox("Measurements")
-        meas_layout = QVBoxLayout()
-        
-        self.vmax_label = QLabel("V Max: 2.650 V")
-        self.vmin_label = QLabel("V Min: 0.650 V")
-        self.vavg_label = QLabel("V Avg: 1.650 V")
-        
-        meas_layout.addWidget(self.vmax_label)
-        meas_layout.addWidget(self.vmin_label)
-        meas_layout.addWidget(self.vavg_label)
-        
-        meas_group.setLayout(meas_layout)
-        layout.addWidget(meas_group)
+        # Column 3: Horizontal Control  
+        horiz_group = self.create_horizontal_control()
+        layout.addWidget(horiz_group)
         
         layout.addStretch()
         
         return panel
+    
+    def create_vertical_control(self):
+        """Create vertical control with rotary knob"""
+        group = QGroupBox("Vertical")
+        vert_main_layout = QHBoxLayout()
+        vert_main_layout.setSpacing(5)
+        vert_main_layout.setContentsMargins(5, 8, 5, 5)
+        
+        # Left: Knob
+        knob_section = QVBoxLayout()
+        knob_section.setAlignment(Qt.AlignCenter)
+        knob_section.setSpacing(2)
+        
+        volts_label = QLabel("VOLTS/DIV")
+        volts_label.setAlignment(Qt.AlignCenter)
+        volts_label.setStyleSheet("font-weight: bold; color: #00ff00; font-size: 9px;")
+        volts_label.setFixedWidth(90)
+        knob_section.addWidget(volts_label)
+        
+        knob_section.addSpacing(8)
+        
+        self.v_knob = RotaryKnob()
+        self.v_knob.setMinimum(0)
+        self.v_knob.setMaximum(19)
+        self.v_knob.setValue(13)  # 0.5V
+        self.v_knob.valueChanged.connect(self.on_v_knob_changed)
+        knob_section.addWidget(self.v_knob, alignment=Qt.AlignCenter)
+        
+        knob_section.addSpacing(8)
+        
+        self.v_div_display = QLabel("0.500 V/div")
+        self.v_div_display.setAlignment(Qt.AlignCenter)
+        self.v_div_display.setStyleSheet("color: #00ff00; font-size: 10px; font-weight: bold;")
+        self.v_div_display.setFixedWidth(90)
+        knob_section.addWidget(self.v_div_display)
+        
+        knob_container = QWidget()
+        knob_container.setFixedWidth(100)
+        knob_container.setLayout(knob_section)
+        vert_main_layout.addWidget(knob_container)
+        
+        # Separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setStyleSheet("background-color: #00ff00;")
+        vert_main_layout.addWidget(separator)
+        
+        # Right: Position slider with reset
+        slider_section = QVBoxLayout()
+        slider_section.setSpacing(3)
+        
+        pos_label = QLabel("Position")
+        pos_label.setStyleSheet("color: #00ff00; font-size: 9px;")
+        slider_section.addWidget(pos_label, alignment=Qt.AlignCenter)
+        
+        self.v_position_slider = QSlider(Qt.Vertical)
+        self.v_position_slider.setRange(-100, 100)
+        self.v_position_slider.setValue(0)
+        self.v_position_slider.valueChanged.connect(self.on_v_position_changed)
+        self.v_position_slider.setMinimumHeight(60)
+        slider_section.addWidget(self.v_position_slider, alignment=Qt.AlignCenter)
+        
+        self.v_pos_display = QLabel("0.0 V")
+        self.v_pos_display.setAlignment(Qt.AlignCenter)
+        self.v_pos_display.setStyleSheet("color: #00ff00; font-size: 9px;")
+        slider_section.addWidget(self.v_pos_display)
+        
+        reset_btn = QPushButton("⟲")
+        reset_btn.setFixedSize(30, 20)
+        reset_btn.setStyleSheet("font-size: 12px; padding: 0px;")
+        reset_btn.clicked.connect(lambda: self.v_position_slider.setValue(0))
+        slider_section.addWidget(reset_btn, alignment=Qt.AlignCenter)
+        
+        vert_main_layout.addLayout(slider_section)
+        
+        group.setLayout(vert_main_layout)
+        return group
+    
+    def create_horizontal_control(self):
+        """Create horizontal control with rotary knob"""
+        group = QGroupBox("Horizontal")
+        horiz_main_layout = QHBoxLayout()
+        horiz_main_layout.setSpacing(5)
+        horiz_main_layout.setContentsMargins(5, 8, 5, 5)
+        
+        # Left: Knob
+        knob_section = QVBoxLayout()
+        knob_section.setAlignment(Qt.AlignCenter)
+        knob_section.setSpacing(2)
+        
+        time_label = QLabel("TIME/DIV")
+        time_label.setAlignment(Qt.AlignCenter)
+        time_label.setStyleSheet("font-weight: bold; color: #00ff00; font-size: 9px;")
+        time_label.setFixedWidth(90)
+        knob_section.addWidget(time_label)
+        
+        knob_section.addSpacing(8)
+        
+        self.t_knob = RotaryKnob()
+        self.t_knob.setMinimum(0)
+        self.t_knob.setMaximum(25)
+        self.t_knob.setValue(11)  # 2ms
+        self.t_knob.valueChanged.connect(self.on_t_knob_changed)
+        knob_section.addWidget(self.t_knob, alignment=Qt.AlignCenter)
+        
+        knob_section.addSpacing(8)
+        
+        self.t_div_display = QLabel("2.00 ms/div")
+        self.t_div_display.setAlignment(Qt.AlignCenter)
+        self.t_div_display.setStyleSheet("color: #00ff00; font-size: 10px; font-weight: bold;")
+        self.t_div_display.setFixedWidth(90)
+        knob_section.addWidget(self.t_div_display)
+        
+        knob_container = QWidget()
+        knob_container.setFixedWidth(100)
+        knob_container.setLayout(knob_section)
+        horiz_main_layout.addWidget(knob_container)
+        
+        # Separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setStyleSheet("background-color: #00ff00;")
+        horiz_main_layout.addWidget(separator)
+        
+        # Right: Position controls with reset
+        right_section = QVBoxLayout()
+        right_section.setSpacing(5)
+        right_section.setAlignment(Qt.AlignTop)
+        
+        pos_label = QLabel("Position")
+        pos_label.setStyleSheet("color: #00ff00; font-size: 9px;")
+        right_section.addWidget(pos_label, alignment=Qt.AlignCenter)
+        
+        slider_row = QHBoxLayout()
+        slider_row.setSpacing(3)
+        
+        self.h_position_slider = QSlider(Qt.Horizontal)
+        self.h_position_slider.setRange(-100, 100)
+        self.h_position_slider.setValue(0)
+        self.h_position_slider.setMinimumWidth(120)
+        self.h_position_slider.valueChanged.connect(self.on_h_position_changed)
+        slider_row.addWidget(self.h_position_slider)
+        
+        reset_btn = QPushButton("⟲")
+        reset_btn.setFixedSize(25, 25)
+        reset_btn.setStyleSheet("font-size: 12px; padding: 0px;")
+        reset_btn.clicked.connect(lambda: self.h_position_slider.setValue(0))
+        slider_row.addWidget(reset_btn)
+        
+        right_section.addLayout(slider_row)
+        
+        self.h_pos_display = QLabel("0.0 ms")
+        self.h_pos_display.setAlignment(Qt.AlignCenter)
+        self.h_pos_display.setStyleSheet("color: #00ff00; font-size: 9px;")
+        right_section.addWidget(self.h_pos_display)
+        
+        horiz_main_layout.addLayout(right_section)
+        
+        group.setLayout(horiz_main_layout)
+        return group
+    
+    def get_v_div_values(self):
+        """Get voltage per division values - sorted from smallest to largest"""
+        return [0.01, 0.015, 0.02, 0.025, 0.03, 0.04, 0.05, 0.06, 0.075, 0.1,
+                0.15, 0.2, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 5.0]
+    
+    def get_t_div_values(self):
+        """Get time per division values - sorted from smallest to largest"""
+        return [0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 0.8, 1.0,
+                1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.5, 8.0, 10.0,
+                15.0, 20.0, 25.0, 30.0, 40.0, 50.0]
+    
+    def on_v_knob_changed(self, value):
+        """Handle voltage knob rotation"""
+        values = self.get_v_div_values()
+        if 0 <= value < len(values):
+            v_div = values[value]
+            if v_div < 1.0:
+                self.v_div_display.setText(f"{v_div*1000:.0f} mV/div")
+            else:
+                self.v_div_display.setText(f"{v_div:.3f} V/div")
+            self.canvas.v_per_div = v_div
+    
+    def on_t_knob_changed(self, value):
+        """Handle time knob rotation"""
+        values = self.get_t_div_values()
+        if 0 <= value < len(values):
+            t_div = values[value]
+            if t_div < 1.0:
+                self.t_div_display.setText(f"{t_div*1000:.0f} µs/div")
+            else:
+                self.t_div_display.setText(f"{t_div:.2f} ms/div")
+            self.canvas.t_per_div = t_div
+    
+    def on_v_position_changed(self, value):
+        """Handle vertical position slider"""
+        offset = value / 100.0 * 2.0  # -2.0 to +2.0 V
+        self.v_pos_display.setText(f"{offset:.2f} V")
+        self.canvas.set_vertical_offset(offset)
+    
+    def on_h_position_changed(self, value):
+        """Handle horizontal position slider"""
+        offset = value / 100.0 * 10.0  # -10 to +10 ms
+        self.h_pos_display.setText(f"{offset:.1f} ms")
+        self.canvas.set_horizontal_offset(offset)
     
     def change_signal_type(self, text):
         self.generator.signal_type = text.lower()
     
     def change_frequency(self, value):
         self.generator.frequency = value
-        self.freq_label.setText(f'Frequency: {value} Hz')
     
     def change_amplitude(self, value):
         self.generator.amplitude = value
     
-    def change_offset(self, value):
-        self.generator.offset = value
-    
-    def change_noise(self, value):
-        self.generator.noise_level = value
-    
     def change_sample_rate(self, text):
         rates = {
-            '10 kHz': 10000,
-            '50 kHz': 50000,
-            '100 kHz': 100000,
-            '200 kHz': 200000,
-            '500 kHz': 500000,
-            '1 MHz': 1000000
+            '100k': 100000,
+            '200k': 200000,
+            '500k': 500000
         }
         self.sample_rate = rates.get(text, 100000)
     
@@ -522,7 +713,7 @@ class DummyOscilloscopeGUI(QMainWindow):
     
     def toggle_acquisition(self):
         self.is_running = not self.is_running
-        self.run_btn.setText("Stop" if self.is_running else "Run")
+        self.run_btn.setText("⏸ Stop" if self.is_running else "▶ Run")
     
     def update_waveform(self):
         if not self.is_running:
@@ -531,9 +722,9 @@ class DummyOscilloscopeGUI(QMainWindow):
         # Generate dummy data
         data = self.generator.generate(self.sample_rate, self.buffer_size)
         
-        # Get division settings
-        v_per_div = self.volts_per_div.value()
-        t_per_div = self.time_per_div.value()
+        # Get division settings from knobs
+        v_per_div = self.canvas.v_per_div
+        t_per_div = self.canvas.t_per_div
         
         # Update plot
         self.canvas.update_plot(data, self.sample_rate, v_per_div, t_per_div)
@@ -545,11 +736,28 @@ class DummyOscilloscopeGUI(QMainWindow):
         v_avg = voltage.mean()
         v_pp = v_max - v_min
         
-        # Update labels
-        self.vmax_label.setText(f"V Max: {v_max:.3f} V")
-        self.vmin_label.setText(f"V Min: {v_min:.3f} V")
-        self.vavg_label.setText(f"V Avg: {v_avg:.3f} V")
+        # Update labels with fixed width format
+        self.vmax_label.setText(f"Vmax: {v_max:.3f} V")
+        self.vmin_label.setText(f"Vmin: {v_min:.3f} V")
+        self.vavg_label.setText(f"Vavg: {v_avg:.3f} V")
         self.vpp_label.setText(f"Vpp: {v_pp:.3f} V")
+        
+        # Calculate frequency if possible
+        if len(voltage) > 10:
+            # Simple zero-crossing detection for frequency
+            crossings = np.where(np.diff(np.sign(voltage - v_avg)))[0]
+            if len(crossings) > 2:
+                period_samples = np.mean(np.diff(crossings)) * 2  # Full period
+                freq = self.sample_rate / period_samples
+                self.freq_label.setText(f"Freq: {freq:.1f} Hz")
+                period_ms = 1000.0 / freq
+                self.period_label.setText(f"Period: {period_ms:.3f} ms")
+            else:
+                self.freq_label.setText("Freq: --")
+                self.period_label.setText("Period: --")
+        
+        self.duty_label.setText("Duty: --")
+        self.samples_label.setText(f"Samples: {len(data)}")
 
 def main():
     print("=" * 60)
