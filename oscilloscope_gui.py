@@ -40,7 +40,7 @@ class RotaryKnob(QDial):
         self.setStyleSheet("""
             QDial {
                 background-color: #2a2a2a;
-                border: 3px solid #00ff00;
+                border: 3px solid #4a9eff;
                 border-radius: 40px;
             }
         """)
@@ -80,7 +80,7 @@ class RotaryKnob(QDial):
         painter.drawLine(int(center_x), int(center_y), int(end_x), int(end_y))
         
         # Draw center dot
-        painter.setBrush(QColor('#00ff00'))
+        painter.setBrush(QColor('#4a9eff'))
         painter.drawEllipse(int(center_x - 4), int(center_y - 4), 8, 8)
 
 class SerialThread(QThread):
@@ -149,36 +149,37 @@ class OscilloscopeCanvas(FigureCanvas):
         self.setup_plot()
         
     def setup_plot(self):
-        self.ax.set_facecolor('#0a0a0a')
+        self.ax.set_facecolor('#0a1a1a')  # Dark teal background like CRT oscilloscope
+        self.figure.patch.set_facecolor('#000000')  # Black figure background
         
         # Custom grid for divisions (like real oscilloscope)
-        self.ax.grid(True, color='#00ff00', linestyle='-', linewidth=0.8, alpha=0.3)
+        self.ax.grid(True, color='#00ff88', linestyle='-', linewidth=1.0, alpha=0.5)
         self.ax.minorticks_on()
-        self.ax.grid(which='minor', color='#00ff00', linestyle=':', linewidth=0.3, alpha=0.2)
+        self.ax.grid(which='minor', color='#00ff88', linestyle='-', linewidth=0.4, alpha=0.2)
         
         # Remove default labels (we'll add custom ones)
         self.ax.set_xlabel('')
         self.ax.set_ylabel('')
-        self.ax.tick_params(colors='#00ff00', labelsize=8)
+        self.ax.tick_params(colors='#00ffaa', labelsize=9, width=1.5)
         
-        # Make spines more visible
+        # Make spines more visible with cyan color
         for spine in self.ax.spines.values():
-            spine.set_color('#00ff00')
+            spine.set_color('#00ffaa')
             spine.set_linewidth(2)
         
-        # Initialize empty line
-        self.line, = self.ax.plot([], [], color='#00ff00', linewidth=2.0)
+        # Initialize empty line - blue for signal trace
+        self.line, = self.ax.plot([], [], color='#4488ff', linewidth=2.5, antialiased=True)
         
         # Ground/Zero reference line (center horizontal)
-        self.zero_line = self.ax.axhline(y=0, color='#00ff00', 
+        self.zero_line = self.ax.axhline(y=0, color='#888888', 
                                          linestyle='-', linewidth=2, alpha=0.8)
         
         # Trigger level line
-        self.trigger_line = self.ax.axhline(y=0, color='#ff0000', 
+        self.trigger_line = self.ax.axhline(y=0, color='#ff6666', 
                                            linestyle='--', linewidth=2, alpha=0.8)
         
         # Center vertical line (time reference)
-        self.center_vline = self.ax.axvline(x=0, color='#00ff00',
+        self.center_vline = self.ax.axvline(x=0, color='#888888',
                                            linestyle='-', linewidth=2, alpha=0.5)
         
         # No signal text
@@ -192,15 +193,15 @@ class OscilloscopeCanvas(FigureCanvas):
         # Division labels
         self.time_label = self.ax.text(0.02, 0.98, 'Time: 2.0 ms/div', 
                                       transform=self.ax.transAxes,
-                                      fontsize=10, color='#00ff00',
+                                      fontsize=10, color='#ffffff',
                                       ha='left', va='top',
-                                      bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
+                                      bbox=dict(boxstyle='round', facecolor='#2b2b2b', alpha=0.7))
         
         self.volt_label = self.ax.text(0.02, 0.92, 'Volt: 0.5 V/div', 
                                       transform=self.ax.transAxes,
-                                      fontsize=10, color='#00ff00',
+                                      fontsize=10, color='#ffffff',
                                       ha='left', va='top',
-                                      bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
+                                      bbox=dict(boxstyle='round', facecolor='#2b2b2b', alpha=0.7))
         
         # Set initial limits centered at zero
         self.update_limits()
@@ -322,42 +323,42 @@ class OscilloscopeGUI(QMainWindow):
         # Main widget and layout
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-        main_layout = QVBoxLayout(main_widget)
+        main_layout = QHBoxLayout(main_widget)  # Changed to horizontal
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
         
-        # Top: Display area
-        display_widget = QWidget()
-        display_layout = QHBoxLayout(display_widget)
-        display_layout.setContentsMargins(0, 0, 0, 0)
-        display_layout.setSpacing(5)
+        # Left column: Canvas and bottom panel (status + measurements)
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(5)
         
-        # Left: Canvas
+        # Canvas (takes most space)
         self.canvas = OscilloscopeCanvas(self)
-        display_layout.addWidget(self.canvas, 1)
+        left_layout.addWidget(self.canvas, 1)
         
-        # Right: Control panel (NO SCROLL - compact design)
+        # Bottom panel (status + measurements)
+        bottom_panel = self.create_bottom_panel()
+        left_layout.addWidget(bottom_panel, 0)
+        
+        main_layout.addWidget(left_widget, 1)
+        
+        # Right column: Control panel (full height)
         control_panel = self.create_control_panel()
         control_panel.setMaximumWidth(280)
         control_panel.setMinimumWidth(260)
-        display_layout.addWidget(control_panel, 0)
-        
-        main_layout.addWidget(display_widget, 1)
-        
-        # Bottom: Status and measurements (fixed height, spread layout)
-        bottom_panel = self.create_bottom_panel()
-        main_layout.addWidget(bottom_panel, 0)
+        main_layout.addWidget(control_panel, 0)
         
     def create_control_panel(self):
         panel = QWidget()
         panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         panel.setStyleSheet("""
             QGroupBox {
-                border: 2px solid #00ff00;
+                border: 2px solid #4a9eff;
                 border-radius: 5px;
                 margin-top: 10px;
                 font-weight: bold;
-                color: #00ff00;
+                color: #4a9eff;
                 font-size: 10px;
                 padding-top: 10px;
             }
@@ -368,9 +369,9 @@ class OscilloscopeGUI(QMainWindow):
             }
             QPushButton {
                 background-color: #3a3a3a;
-                border: 2px solid #00ff00;
+                border: 2px solid #4a9eff;
                 border-radius: 5px;
-                color: #00ff00;
+                color: #4a9eff;
                 padding: 5px;
                 font-weight: bold;
                 min-height: 25px;
@@ -380,13 +381,13 @@ class OscilloscopeGUI(QMainWindow):
                 background-color: #4a4a4a;
             }
             QPushButton:pressed {
-                background-color: #00ff00;
+                background-color: #4a9eff;
                 color: #000000;
             }
             QComboBox {
                 background-color: #3a3a3a;
-                border: 1px solid #00ff00;
-                color: #00ff00;
+                border: 1px solid #4a9eff;
+                color: #4a9eff;
                 padding: 3px;
                 font-size: 10px;
             }
@@ -460,11 +461,11 @@ class OscilloscopeGUI(QMainWindow):
         
         volts_label = QLabel("VOLTS/DIV")
         volts_label.setAlignment(Qt.AlignCenter)
-        volts_label.setStyleSheet("font-weight: bold; color: #00ff00; font-size: 10px;")
+        volts_label.setStyleSheet("font-weight: bold; color: #4a9eff; font-size: 10px;")
         volts_label.setFixedWidth(90)  # Fixed width to prevent shift
         knob_section.addWidget(volts_label)
         
-        knob_section.addSpacing(10)  # Increased from 5 to 10
+        knob_section.addSpacing(15)  # More space between label and knob
         
         self.v_knob = RotaryKnob()
         self.v_knob.setMinimum(0)
@@ -475,18 +476,18 @@ class OscilloscopeGUI(QMainWindow):
         self.v_knob.setFixedSize(70, 70)
         knob_section.addWidget(self.v_knob, alignment=Qt.AlignCenter)
         
-        knob_section.addSpacing(10)  # Increased from 5 to 10
+        knob_section.addSpacing(15)  # More space between knob and display
         
         self.v_div_display = QLabel("0.500 V/div")
         self.v_div_display.setAlignment(Qt.AlignCenter)
-        self.v_div_display.setStyleSheet("color: #00ff00; font-size: 11px; font-weight: bold; background-color: #1a1a1a; padding: 2px; border-radius: 3px;")
+        self.v_div_display.setStyleSheet("color: #4a9eff; font-size: 11px; font-weight: bold; background-color: #1a1a1a; padding: 2px; border-radius: 3px;")
         self.v_div_display.setFixedWidth(90)  # Fixed width to prevent shift
         knob_section.addWidget(self.v_div_display)
         
         # Create container with fixed width for knob section
         knob_container = QWidget()
         knob_container.setFixedWidth(100)
-        knob_container.setMinimumHeight(130)  # Set minimum height to accommodate spacing
+        knob_container.setMinimumHeight(160)  # Increased to give more space
         knob_container.setLayout(knob_section)
         vert_main_layout.addWidget(knob_container)
         
@@ -525,8 +526,8 @@ class OscilloscopeGUI(QMainWindow):
         v_reset_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2a2a2a;
-                color: #00ff00;
-                border: 1px solid #00ff00;
+                color: #4a9eff;
+                border: 1px solid #4a9eff;
                 border-radius: 3px;
                 font-weight: bold;
                 font-size: 12px;
@@ -566,11 +567,11 @@ class OscilloscopeGUI(QMainWindow):
         
         time_label = QLabel("TIME/DIV")
         time_label.setAlignment(Qt.AlignCenter)
-        time_label.setStyleSheet("font-weight: bold; color: #00ff00; font-size: 10px;")
+        time_label.setStyleSheet("font-weight: bold; color: #4a9eff; font-size: 10px;")
         time_label.setFixedWidth(90)  # Fixed width to prevent shift
         knob_section.addWidget(time_label)
         
-        knob_section.addSpacing(10)  # Increased from 5 to 10
+        knob_section.addSpacing(15)  # Increased to raise knob more
         
         self.t_knob = RotaryKnob()
         self.t_knob.setMinimum(0)
@@ -581,18 +582,18 @@ class OscilloscopeGUI(QMainWindow):
         self.t_knob.setFixedSize(70, 70)
         knob_section.addWidget(self.t_knob, alignment=Qt.AlignCenter)
         
-        knob_section.addSpacing(10)  # Increased from 5 to 10
+        knob_section.addSpacing(15)  # Increased to lower display more
         
         self.t_div_display = QLabel("2.00 ms/div")
         self.t_div_display.setAlignment(Qt.AlignCenter)
-        self.t_div_display.setStyleSheet("color: #00ff00; font-size: 11px; font-weight: bold; background-color: #1a1a1a; padding: 2px; border-radius: 3px;")
+        self.t_div_display.setStyleSheet("color: #4a9eff; font-size: 11px; font-weight: bold; background-color: #1a1a1a; padding: 3px 5px; border-radius: 3px;")
         self.t_div_display.setFixedWidth(90)  # Fixed width to prevent shift
         knob_section.addWidget(self.t_div_display)
         
         # Create container with fixed width for knob section
         knob_container = QWidget()
         knob_container.setFixedWidth(100)
-        knob_container.setMinimumHeight(130)  # Set minimum height to accommodate spacing
+        knob_container.setMinimumHeight(160)  # Match vertical control height
         knob_container.setLayout(knob_section)
         horiz_main_layout.addWidget(knob_container)
         
@@ -611,7 +612,7 @@ class OscilloscopeGUI(QMainWindow):
         rate_row = QHBoxLayout()
         rate_row.setSpacing(3)
         rate_label = QLabel("Rate:")
-        rate_label.setStyleSheet("font-weight: bold; color: #00ff00; font-size: 9px;")
+        rate_label.setStyleSheet("font-weight: bold; color: #4a9eff; font-size: 9px;")
         rate_row.addWidget(rate_label)
         
         self.rate_combo = QComboBox()
@@ -646,8 +647,8 @@ class OscilloscopeGUI(QMainWindow):
         h_reset_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2a2a2a;
-                color: #00ff00;
-                border: 1px solid #00ff00;
+                color: #4a9eff;
+                border: 1px solid #4a9eff;
                 border-radius: 3px;
                 font-weight: bold;
                 font-size: 12px;
@@ -753,88 +754,90 @@ class OscilloscopeGUI(QMainWindow):
         return panel
     
     def create_bottom_panel(self):
-        """Create bottom panel with status and measurements"""
+        """Create combined status and measurements panel at bottom"""
         panel = QWidget()
-        panel.setMaximumHeight(90)
+        panel.setMaximumHeight(70)
         panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         panel.setStyleSheet("""
             QWidget {
-                background-color: #1a1a1a;
-                border-top: 2px solid #00ff00;
-            }
-            QLabel {
-                color: #00ff00;
-                font-size: 11px;
-                font-weight: bold;
-                padding: 2px;
+                background-color: #3c3c3c;
+                border-top: 2px solid #666666;
             }
         """)
         
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(5)
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(15)
         
-        # Row 1: Status
-        status_row = QHBoxLayout()
+        # Left: Status indicator
         self.status_label = QLabel('● Disconnected')
-        self.status_label.setStyleSheet("color: #ff0000; font-size: 12px; font-weight: bold;")
-        status_row.addWidget(self.status_label)
-        status_row.addStretch()
-        layout.addLayout(status_row)
+        self.status_label.setStyleSheet("""
+            QLabel {
+                color: #ff0000;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 5px 10px;
+            }
+        """)
+        self.status_label.setMinimumWidth(150)
+        layout.addWidget(self.status_label)
         
-        # Row 2: Voltage measurements
-        volt_row = QHBoxLayout()
-        volt_row.setSpacing(10)
+        # Separator line
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setStyleSheet("background-color: #666666;")
+        layout.addWidget(separator)
+        
+        # Right: Measurement displays - yellow text like oscilloscope display
+        meas_style = """
+            QLabel {
+                background-color: #2b2b2b;
+                color: #ffdd00;
+                border: 2px solid #666666;
+                border-radius: 5px;
+                padding: 8px 10px;
+                font-family: 'Courier New', monospace;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """
         
         self.vmax_label = QLabel("Vmax: --")
-        self.vmax_label.setMinimumWidth(120)
-        self.vmax_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.vmax_label.setMinimumWidth(140)
+        self.vmax_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vmax_label.setStyleSheet(meas_style)
+        layout.addWidget(self.vmax_label)
         
         self.vmin_label = QLabel("Vmin: --")
-        self.vmin_label.setMinimumWidth(120)
-        self.vmin_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.vmin_label.setMinimumWidth(140)
+        self.vmin_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vmin_label.setStyleSheet(meas_style)
+        layout.addWidget(self.vmin_label)
         
         self.vavg_label = QLabel("Vavg: --")
-        self.vavg_label.setMinimumWidth(120)
-        self.vavg_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.vavg_label.setMinimumWidth(140)
+        self.vavg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vavg_label.setStyleSheet(meas_style)
+        layout.addWidget(self.vavg_label)
         
         self.vpp_label = QLabel("Vpp: --")
         self.vpp_label.setMinimumWidth(120)
-        self.vpp_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        
-        volt_row.addWidget(self.vmax_label)
-        volt_row.addWidget(self.vmin_label)
-        volt_row.addWidget(self.vavg_label)
-        volt_row.addWidget(self.vpp_label)
-        volt_row.addStretch()
-        layout.addLayout(volt_row)
-        
-        # Row 3: Frequency and time measurements
-        freq_row = QHBoxLayout()
-        freq_row.setSpacing(10)
+        self.vpp_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vpp_label.setStyleSheet(meas_style)
+        layout.addWidget(self.vpp_label)
         
         self.freq_label = QLabel("Freq: --")
-        self.freq_label.setMinimumWidth(150)
-        self.freq_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.freq_label.setMinimumWidth(120)
+        self.freq_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.freq_label.setStyleSheet(meas_style)
+        layout.addWidget(self.freq_label)
         
         self.period_label = QLabel("Period: --")
-        self.period_label.setMinimumWidth(150)
-        self.period_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        
-        self.duty_label = QLabel("Duty: --")
-        self.duty_label.setMinimumWidth(120)
-        self.duty_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        
-        self.samples_label = QLabel("Samples: 2000")
-        self.samples_label.setMinimumWidth(120)
-        self.samples_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        
-        freq_row.addWidget(self.freq_label)
-        freq_row.addWidget(self.period_label)
-        freq_row.addWidget(self.duty_label)
-        freq_row.addWidget(self.samples_label)
-        freq_row.addStretch()
-        layout.addLayout(freq_row)
+        self.period_label.setMinimumWidth(130)
+        self.period_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.period_label.setStyleSheet(meas_style)
+        layout.addWidget(self.period_label)
         
         return panel
 
@@ -888,7 +891,7 @@ class OscilloscopeGUI(QMainWindow):
                 self.serial_thread.start()
                 
                 self.status_label.setText('● Connected')
-                self.status_label.setStyleSheet("color: #00ff00; font-size: 12px; font-weight: bold;")
+                self.status_label.setStyleSheet("color: #4a9eff; font-size: 12px; font-weight: bold;")
                 self.connect_btn.setText("Disconnect")
                 self.run_btn.setEnabled(True)
                 self.single_btn.setEnabled(True)
@@ -1013,6 +1016,8 @@ class OscilloscopeGUI(QMainWindow):
         freq = self.estimate_frequency(voltage, sample_rate)
         period = 1000.0 / freq if freq > 0 else 0
         
+
+        
         # Update labels with compact format
         self.vmax_label.setText(f"Vmax: {v_max:.2f}V")
         self.vmin_label.setText(f"Vmin: {v_min:.2f}V")
@@ -1028,9 +1033,11 @@ class OscilloscopeGUI(QMainWindow):
                 self.freq_label.setText(f"Freq: {freq/1000000:.2f} MHz")
             
             self.period_label.setText(f"Period: {period:.2f} ms")
+
         else:
             self.freq_label.setText("Freq: --")
             self.period_label.setText("Period: --")
+
             
     def estimate_frequency(self, voltage, sample_rate):
         try:
@@ -1060,7 +1067,7 @@ class OscilloscopeGUI(QMainWindow):
         self.vpp_label.setText("Vpp: --")
         self.freq_label.setText("Freq: --")
         self.period_label.setText("Period: --")
-        self.duty_label.setText("Duty: --")
+
         
 def main():
     app = QApplication(sys.argv)
