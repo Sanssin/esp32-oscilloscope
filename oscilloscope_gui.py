@@ -252,9 +252,12 @@ class OscilloscopeCanvas(FigureCanvas):
         self.v_per_div = v_per_div
         self.t_per_div = t_per_div
         
-        # Convert ADC to voltage (0-4095 -> 0-3.3V)
-        # Shift to center at ground (1.65V becomes 0V)
-        voltage = np.array(adc_data) * 3.3 / 4095.0 - 1.65
+        # Convert ADC to voltage (0-4095 -> 0-10V with voltage divider)
+        # Voltage divider: 10V -> 3.3V, so scale back: 3.3V * 3.03 = 10V
+        voltage = np.array(adc_data) * 3.3 / 4095.0 * 3.03
+        
+        # Center at 5V (middle of 0-10V range)
+        voltage = voltage - 5.0
         
         # Apply vertical offset
         voltage = voltage - self.v_offset
@@ -292,9 +295,9 @@ class OscilloscopeCanvas(FigureCanvas):
         self.draw()
         
     def update_trigger_line(self, level):
-        """Update trigger level line (relative to center/ground)"""
-        # Trigger level is in absolute voltage, convert to relative
-        trigger_relative = level - 1.65 - self.v_offset
+        """Update trigger level line (0-10V range, centered at 5V)"""
+        # Trigger level is in absolute voltage (0-10V), convert to relative (centered at 5V)
+        trigger_relative = level - 5.0 - self.v_offset
         self.trigger_line.set_ydata([trigger_relative, trigger_relative])
         self.draw()
 
@@ -306,6 +309,7 @@ class OscilloscopeGUI(QMainWindow):
         self.sample_rate = 100000
         self.is_running = False
         self.probe_attenuation = 1
+        self.voltage_scale = 3.03  # Scaling factor for 0-10V (10V/3.3V)
         
         self.initUI()
         
@@ -315,7 +319,7 @@ class OscilloscopeGUI(QMainWindow):
         self.update_timer.start(100)  # Update every 100ms
         
     def initUI(self):
-        self.setWindowTitle('ESP32 Oscilloscope')
+        self.setWindowTitle('ESP32 Oscilloscope (0-10V)')
         self.setGeometry(100, 100, 1200, 700)  # Smaller default size
         self.setMinimumSize(1100, 650)  # Minimum size
         self.setStyleSheet("background-color: #2b2b2b; color: #ffffff;")
@@ -707,7 +711,7 @@ class OscilloscopeGUI(QMainWindow):
         edge_layout.addWidget(self.trig_edge_combo)
         trig_layout.addLayout(edge_layout)
         
-        # Level
+        # Level - Updated for 0-10V range
         level_layout = QVBoxLayout()
         level_layout.setSpacing(2)
         level_row = QHBoxLayout()
@@ -715,13 +719,13 @@ class OscilloscopeGUI(QMainWindow):
         level_row.addWidget(QLabel("Level:"))
         self.trig_level_slider = QSlider(Qt.Horizontal)
         self.trig_level_slider.setMinimum(0)
-        self.trig_level_slider.setMaximum(330)
-        self.trig_level_slider.setValue(165)
+        self.trig_level_slider.setMaximum(1000)  # 0-10V range (x100)
+        self.trig_level_slider.setValue(500)  # Default 5V (middle)
         self.trig_level_slider.valueChanged.connect(lambda v: self.change_trigger_level(v/100.0))
         level_row.addWidget(self.trig_level_slider)
         level_layout.addLayout(level_row)
         
-        self.trig_level_label = QLabel("1.65V")
+        self.trig_level_label = QLabel("5.00V")
         self.trig_level_label.setAlignment(Qt.AlignCenter)
         self.trig_level_label.setStyleSheet("color: #ff0000; font-weight: bold; font-size: 10px;")
         level_layout.addWidget(self.trig_level_label)
@@ -843,8 +847,9 @@ class OscilloscopeGUI(QMainWindow):
 
     def get_v_div_values(self):
         """Get voltage per division values (in Volts) - sorted from smallest to largest"""
-        return [0.01, 0.015, 0.02, 0.025, 0.03, 0.04, 0.05, 0.06, 0.075, 0.1,
-                0.15, 0.2, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 5.0]  # 20 values (index 0-19)
+        # Adjusted for 0-10V range
+        return [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 
+                1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0]  # 20 values (index 0-19)
 
     def get_t_div_values(self):
         """Get time per division values (in ms) - sorted from smallest to largest"""
@@ -1005,15 +1010,18 @@ class OscilloscopeGUI(QMainWindow):
         # Update plot
         self.canvas.update_plot(data, sample_rate, v_per_div, t_per_div)
         
-        # Calculate measurements (in centered voltage)
-        voltage = np.array(data) * 3.3 / 4095.0 - 1.65
+        # Calculate measurements (0-10V range)
+        voltage = np.array(data) * 3.3 / 4095.0 * 3.03  # Scale to 0-10V
         v_max = voltage.max()
         v_min = voltage.min()
         v_avg = voltage.mean()
         v_pp = v_max - v_min
         
+        # For frequency calculation, center around mean
+        voltage_centered = voltage - v_avg
+        
         # Estimate frequency
-        freq = self.estimate_frequency(voltage, sample_rate)
+        freq = self.estimate_frequency(voltage_centered, sample_rate)
         period = 1000.0 / freq if freq > 0 else 0
         
 

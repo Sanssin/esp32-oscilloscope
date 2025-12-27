@@ -1,7 +1,9 @@
-# ESP32 Oscilloscope Project
+# ESP32 Oscilloscope Project (0-10V Input)
 
 ## Overview
 DIY Oscilloscope using ESP32U DevKit V4 with Python GUI interface on PC. This project is inspired by the ESP32-Oscilloscope project but modified for serial communication instead of TFT display.
+
+**✨ Updated for 0-10V Input Range** - Uses voltage divider circuit to measure signals from 0-10V.
 
 ## Project Structure
 
@@ -21,24 +23,49 @@ DIY Oscilloscope using ESP32U DevKit V4 with Python GUI interface on PC. This pr
 ## Hardware Requirements
 - ESP32U DevKit V4
 - USB Cable (for serial communication)
-- Signal source to measure (max 3.3V)
+- Signal source to measure (0-10V)
+- **Resistors for voltage divider:**
+  - R1: 20kΩ (1/4W, tolerance 1% or 5%)
+  - R2: 10kΩ (1/4W, tolerance 1% or 5%)
+- **Optional:** 100nF ceramic capacitor (code: 104)
 
-## Connections
-- **ADC Input**: GPIO34 (ADC1_CHANNEL_6)
-- **Ground**: GND
-- **Power**: USB
+## Voltage Divider Circuit (REQUIRED for 0-10V)
 
-**IMPORTANT**: Input voltage must be 0-3.3V. For higher voltages, use a voltage divider circuit.
+**WARNING: ESP32 GPIO pins accept MAX 3.3V! Direct 10V connection will damage the chip!**
 
-### Voltage Divider Example (for 5V signals):
+### Circuit Diagram:
 ```
-Signal ----[10kΩ]---- GPIO34
-                |
-              [6.8kΩ]
-                |
-               GND
+Input Signal (0-10V)
+       |
+       +--[R1: 20kΩ]--+--- GPIO34 (ESP32)
+       |               |
+       |            [R2: 10kΩ]
+       |               |
+      GND ----------- GND (ESP32)
 ```
-This divides 5V to ~2V (safe for ESP32).
+
+### With Optional Filter Capacitor:
+```
+Input Signal (0-10V)
+       |
+       +--[R1: 20kΩ]--+--- GPIO34 (ESP32)
+                       |
+                    [R2: 10kΩ] || [C: 100nF]
+                       |
+                      GND
+```
+
+### Voltage Divider Calculation:
+- **Ratio**: R2 / (R1 + R2) = 10k / 30k = 1/3
+- **Input 0V** → GPIO34 = 0V
+- **Input 10V** → GPIO34 = 3.33V ✓ (Safe!)
+- **Scaling Factor**: 3.03x (10V / 3.3V)
+
+### Component Notes:
+- Use **1/4 Watt** resistors minimum
+- **1% tolerance** preferred for accuracy, 5% is acceptable
+- **100nF capacitor** reduces noise (optional but recommended)
+- Do NOT use 100µF capacitor (too large, will slow response)
 
 ## Software Requirements
 
@@ -112,14 +139,15 @@ This will verify:
 
 ### Trigger Settings:
 - **Edge**: Rising or Falling edge detection
-- **Level**: Adjustable voltage threshold (0-3.3V)
+- **Level**: Adjustable voltage threshold (0-10V)
 
 ### Timebase:
 - Sample rates: 10 kHz to 1 MHz
-- Adjustable time scale: 0.1 - 100 ms
+- Adjustable time scale: 0.1 - 50 ms
 
 ### Vertical Scale:
-- Auto-scale or manual (0.5V, 1V, 2V, 3.3V, 5V)
+- Manual voltage/div: 0.05V to 10V per division
+- Full range: 0-10V input
 
 ### Measurements:
 - Vmax, Vmin, Vavg
@@ -150,43 +178,52 @@ This opens the GUI with simulated signals. You can:
 
 ### Using with Real ESP32
 
-1. **Start GUI First**:
-   - Run `oscilloscope_gui.py`
-   - GUI will open and display "NO SIGNAL"
-   - This is normal - you haven't connected yet!
+1. **Build Voltage Divider Circuit**:
+   - Solder R1 (20kΩ) and R2 (10kΩ) according to circuit diagram
+   - Optional: Add 100nF capacitor parallel to R2
+   - Test with multimeter: 10V input should give ~3.3V at midpoint
 
 2. **Connect Hardware**:
+   - Connect voltage divider output to GPIO34 (ESP32 Pin 34)
+   - Connect both grounds together (signal ground and ESP32 ground)
    - Connect ESP32 to PC via USB
-   - Connect signal to GPIO34 (remember: max 3.3V!)
 
-3. **Start GUI** (if not already running):
+3. **Start GUI**:
    - Run `oscilloscope_gui.py`
+   - GUI will display "NO SIGNAL" (normal before connection)
    - Select COM port from dropdown
    - Click "Connect"
-   - "NO SIGNAL" should disappear when data starts flowing
 
 4. **Acquire Signal**:
+   - Connect your 0-10V signal source
    - Click "Run" for continuous acquisition
    - Click "Single" for one-shot capture
-   - Adjust sample rate and scales as needed
+   - Adjust Volts/Div knob for proper vertical scale
+   - Adjust Time/Div knob for proper horizontal scale
 
-5. **Configure Probe** (if using probe):
-   - Select probe attenuation (1x, 10x, 100x)
-   - Voltage readings will be automatically scaled
+5. **Configure Trigger**:
+   - Set trigger mode (Auto recommended for first test)
+   - Adjust trigger level (0-10V range)
+   - Choose edge direction (Rising ↗ or Falling ↘)
 
-6. **Configure Trigger**:
-   - Set trigger mode (Auto/Normal/Single)
-   - Set trigger level using spin box
-   - Choose edge direction (Rising/Falling)
+6. **Adjust Display**:
+   - Use VOLTS/DIV knob to change vertical scale
+   - Use TIME/DIV knob to change time scale  
+   - Use Position sliders to move waveform
+   - View measurements at bottom panel
 
 ## Specifications
 
-- **Input Range**: 0 - 3.3V DC
-- **Input Impedance**: ~50kΩ (ESP32 ADC)
-- **Resolution**: 12-bit (4096 levels)
+- **Input Range**: 0 - 10V DC (via voltage divider)
+- **Input at GPIO34**: 0 - 3.3V (after divider)
+- **Input Impedance**: ~30kΩ (R1 + R2)
+- **Resolution**: 12-bit (4096 levels) = ~2.4 mV per step
+- **Voltage Accuracy**: ±5% (with 5% resistors), ±1% (with 1% resistors)
 - **Max Sample Rate**: 1 MSPS
 - **Buffer Size**: 2000 samples
 - **Bandwidth**: ~100 kHz (limited by ADC and processing)
+- **Voltage Scale Range**: 0.05V/div to 10V/div
+- **Time Scale Range**: 0.1ms/div to 50ms/div
 
 ## Serial Protocol
 
@@ -232,6 +269,12 @@ STATUS:<running>,<sample_rate>,<trig_mode>,<trig_level>,<trig_edge>
 
 ## Troubleshooting
 
+### Voltage readings incorrect:
+- **Check resistor values** with multimeter
+- Verify R1 = 20kΩ, R2 = 10kΩ
+- Test divider: 10V input should give 3.3V at GPIO34
+- Use 1% tolerance resistors for better accuracy
+
 ### GUI shows "NO SIGNAL":
 - **This is normal when not connected!** 
 - Connect ESP32 and click "Connect"
@@ -241,22 +284,35 @@ STATUS:<running>,<sample_rate>,<trig_mode>,<trig_level>,<trig_edge>
   - Try clicking "Run" button
   - Check serial monitor for errors
 
+### Reading shows 0V or wrong scale:
+- Verify voltage divider is connected correctly
+- Check software voltage_scale = 3.03 in code
+- Ensure signal ground connected to ESP32 ground
+- Test with known voltage source (battery)
+
 ### ESP32 not detected:
 - Install CP210x or CH340 USB driver
 - Check Device Manager (Windows) or `ls /dev/tty*` (Linux/Mac)
 - Try different USB cable
 
 ### No waveform displayed:
-- Check signal is connected to GPIO34
-- Verify signal voltage is 0-3.3V
+- Check voltage divider output is 0-3.3V (NOT 0-10V direct!)
+- Verify signal is connected through voltage divider
 - Try "Auto" trigger mode
-- Lower trigger level
+- Adjust trigger level to signal range
 
 ### Noisy signal:
-- Check grounding
-- Use shorter wires
-- Add 100nF capacitor between GPIO34 and GND
+- Add 100nF capacitor parallel to R2 (if not installed)
+- Check grounding - use twisted pair or shielded cable
+- Keep voltage divider wires short
 - Lower sample rate
+- Avoid running near power supplies or motors
+
+### ESP32 damaged / not working:
+- **Did you connect 10V directly without voltage divider?**
+- Check if GPIO34 still responds with multimeter
+- Test with 1.5V battery through divider first
+- May need to replace ESP32 if GPIO damaged
 
 ### GUI won't start:
 - Install missing dependencies: `pip install -r requirements.txt`
@@ -266,7 +322,6 @@ STATUS:<running>,<sample_rate>,<trig_mode>,<trig_level>,<trig_edge>
 
 ### Slow/choppy display:
 - Lower sample rate
-- Reduce update frequency in code
 - Close other applications
 - Check CPU usage
 
@@ -309,28 +364,42 @@ ESP32 → ADC → I2S DMA → Processing → Serial → PC
 
 ## Limitations
 
-1. **Input Protection**: No built-in over-voltage protection. Use voltage divider for >3.3V signals.
-2. **Bandwidth**: Limited to ~100 kHz by ESP32 ADC speed
-3. **Single Channel**: Only one input channel
-4. **AC Coupling**: No built-in AC coupling (use external capacitor if needed)
-5. **Calibration**: ADC may have small offset errors
+1. **Voltage Range**: Limited to 0-10V DC with voltage divider
+2. **Input Protection**: Basic voltage divider only - no reverse polarity or overvoltage protection
+3. **Bandwidth**: Limited to ~100 kHz by ESP32 ADC speed
+4. **Single Channel**: Only one input channel
+5. **AC Coupling**: No built-in AC coupling (use external capacitor if needed)
+6. **Accuracy**: Depends on resistor tolerance (±1% to ±5%)
+7. **Isolation**: No galvanic isolation from signal source
 
-## Future Enhancements
+## Safety Warnings
 
-- [ ] Dual channel support
-- [ ] FFT spectrum analyzer
-- [ ] Data logging to CSV
-- [ ] Advanced trigger modes (pulse width, pattern)
-- [ ] Cursor measurements
-- [ ] Math channels (add, subtract, multiply)
-- [ ] Waveform storage and recall
+⚠️ **CRITICAL SAFETY RULES:**
 
-## Safety Warning
+1. **NEVER apply more than 3.3V directly to GPIO34!**
+   - Always use voltage divider circuit
+   - Test divider with multimeter first
+   - 10V input must become 3.3V at GPIO34
 
-⚠️ **NEVER apply more than 3.3V directly to ESP32 GPIO pins!**
-- Use voltage divider for higher voltages
-- Do not connect to mains AC power
-- Use proper isolation for measuring unknown signals
+2. **NEVER connect to mains AC power (110V/220V)**
+   - This circuit is for DC or low-voltage AC only
+   - Mains voltage will destroy ESP32 and possibly start fire
+   - Use proper isolated oscilloscope for mains measurements
+
+3. **Check polarity and voltage before connecting**
+   - Measure unknown signals with multimeter first
+   - Ensure signal is within 0-10V range
+   - Negative voltages or >10V will damage ESP32
+
+4. **Use proper grounding**
+   - Connect signal ground to ESP32 ground
+   - Do not create ground loops
+   - Isolated power supplies may cause measurement errors
+
+5. **For unknown/dangerous signals:**
+   - Use isolated probe or optocoupler
+   - Add fuse or current limiting
+   - Consider using commercial oscilloscope instead
 
 ## License
 
